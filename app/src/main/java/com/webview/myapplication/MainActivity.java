@@ -116,7 +116,6 @@ public class MainActivity extends Activity {
     private View mCustomView;
     private CustomViewCallback mCustomViewCallback;
     private ProgressBar mProgressBar;
-    private static final String USER_AGENT = "Custom User Agent";
 
     private void requestStoragePermission() {
         if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.READ_EXTERNAL_STORAGE)) {
@@ -181,10 +180,10 @@ public class MainActivity extends Activity {
         webSettings.setDefaultTextEncodingName("utf-8");
         webSettings.setPluginState(PluginState.ON);
         webSettings.setAllowFileAccess(false);
-        webSettings.setUserAgentString(USER_AGENT);
         if (BLOCK_MEDIA) {
             webSettings.setLoadsImagesAutomatically(false);
         }
+
 
         mWebView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -255,61 +254,108 @@ public class MainActivity extends Activity {
         mWebView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 requestStoragePermission();
-            } else {
-                DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-                request.setMimeType(mimeType);
-                request.addRequestHeader("User-Agent", userAgent);
-                request.setDescription("Downloading file");
-                request.setTitle(URLUtil.guessFileName(url, contentDisposition, mimeType));
-                request.allowScanningByMediaScanner();
-                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimeType));
-                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                dm.enqueue(request);
-                Toast.makeText(MainActivity.this, "Downloading File", Toast.LENGTH_LONG).show();
             }
+            Uri source = Uri.parse(url);
+            DownloadManager.Request request = new DownloadManager.Request(source);
+            String cookies = CookieManager.getInstance().getCookie(url);
+            request.addRequestHeader("cookie", cookies);
+            request.addRequestHeader("User-Agent", userAgent);
+            request.setDescription("Downloading File...");
+            request.setTitle(URLUtil.guessFileName(url, contentDisposition, mimeType));
+            request.allowScanningByMediaScanner();
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimeType));
+            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            dm.enqueue(request);
+            Toast.makeText(getApplicationContext(), "Downloading File...", Toast.LENGTH_LONG).show();
         });
-
-        mWebView.loadUrl(STARTUP_URL);
+        mWebView.loadUrl(STARTUP_URL.isEmpty() ? "https://" + ALLOWED_DOMAINS[0] : STARTUP_URL);
     }
-
-    @Override
-    public void onBackPressed() {
-        if (mWebView.canGoBack()) {
-            mWebView.goBack();
-        } else {
-            super.onBackPressed();
-        }
-    }
-
+    
     private class HelloWebViewClient extends WebViewClient {
         @Override
-        public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-            super.onPageStarted(view, url, favicon);
-            mProgressBar.setVisibility(View.VISIBLE);
+        public boolean shouldOverrideUrlLoading(final WebView view, final String url) {
+            String host = Uri.parse(url).getHost();
+            boolean isAllowed = false;
+
+            if (url.startsWith("tel:")) {
+                Intent tel = new Intent(Intent.ACTION_DIAL, Uri.parse(url));
+                startActivity(tel);
+                return true;
+            }
+
+            if (url.contains("mailto:")){
+                   view.getContext().startActivity(
+                    new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            }
+
+            if (host == null) {
+                isAllowed = true; // mailto: links
+            }
+            if (!STARTUP_URL.isEmpty() && url.equals(STARTUP_URL)) {
+                isAllowed = true;
+            }
+            for (String domain : ALLOWED_DOMAINS) {
+                if (host == null || host.equals(domain) || host.equals("www." + domain) || host.equals("m." + domain)) {
+                    isAllowed = true;
+                    break;
+                }
+            }
+
+            if (isAllowed) {
+                mProgressBar.setVisibility(View.VISIBLE);
+                view.loadUrl(url);
+                return true;
+            } else {
+                Toast.makeText(view.getContext(), "This URL is not allowed (" + host + ")", Toast.LENGTH_SHORT).show();
+                return true;
+            }
+        }
+
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
+            if (BLOCK_ADS && AdBlockerUtil.getInstance().isAd(url)) {
+                WebResourceResponse emptyResponse = new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream("".getBytes()));
+                return emptyResponse;
+            } else {
+                return super.shouldInterceptRequest(view, url);
+            }
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
             mProgressBar.setVisibility(View.GONE);
-        }
-
-        @Override
-        public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
-            if (BLOCK_ADS && AdBlockerUtil.getInstance().isAd(url)) {
-                return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream("Blocked".getBytes()));
+            if (BLOCK_MEDIA) {
+                view.loadUrl("javascript: (() => { function handle(node) { if (node.tagName === 'IMG' && node.style.visibility !== 'hidden' && node.width > 32 && node.height > 32) { const blankImageUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///////yH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='; const { width, height } = window.getComputedStyle(node); node.src = blankImageUrl; node.style.visibility = 'hidden'; node.style.background = 'none'; node.style.backgroundImage = `url(${blankImageUrl})`; node.style.width = width; node.style.height = height; } else if (node.tagName === 'VIDEO' || node.tagName === 'IFRAME' || ((!node.type || node.type.includes('video')) && node.tagName === 'SOURCE') || node.tagName === 'OBJECT') { node.remove(); } } document.querySelectorAll('img,video,source,object,embed,iframe,[type^=video]').forEach(handle); const observer = new MutationObserver((mutations) => mutations.forEach((mutation) => mutation.addedNodes.forEach(handle))); observer.observe(document.body, { childList: true, subtree: true }); })();");
             }
-            return super.shouldInterceptRequest(view, url);
         }
 
         @Override
         public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-            if (NO_SSL) {
+            String issuerName = error.getCertificate().getIssuedBy().getOName();
+            if (NO_SSL && (Objects.equals(issuerName, "NetFree") || Objects.equals(issuerName, "Netspark"))) {
                 handler.proceed();
             } else {
-                super.onReceivedSslError(view, handler, error);
+                handler.cancel();
+                view.loadData("<html><body><h1 style='color: grey'>SSL Error</h1></body></html>", "text/html; charset=utf-8", "UTF-8");
+                if (Objects.equals(issuerName, "NetFree")) {
+                    Toast.makeText(view.getContext(), "טיפ: נראה שלא מותקנת תעודת אבטחה של נטפרי", Toast.LENGTH_LONG).show();
+                } else if (Objects.equals(issuerName, "Netspark")) {
+                    Toast.makeText(view.getContext(), "טיפ: נראה שלא מותקנת תעודת אבטחה של אתרוג/רימון", Toast.LENGTH_LONG).show();
+                }
             }
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (mCustomView != null) {
+            mWebView.getWebChromeClient().onHideCustomView();
+        } else if (mWebView.canGoBack()) {
+            mWebView.goBack();
+        } else {
+            super.onBackPressed();
         }
     }
 }
