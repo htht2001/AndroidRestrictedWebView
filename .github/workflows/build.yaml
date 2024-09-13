@@ -61,34 +61,36 @@ jobs:
         run: |
           validate_domain() {
             DOMAIN="${1}"
-            
-            # Remove protocol from URL if present
-            DOMAIN="${DOMAIN#http://}"
-            DOMAIN="${DOMAIN#https://}"
-            DOMAIN="${DOMAIN%%/*}"
-            
-            if ! [[ $DOMAIN =~ ^[A-Za-z0-9.-]+\.[A-Za-z0-9-]{2,}$ ]]; then
-              echo "Error: Invalid domain format: $DOMAIN"
-              exit 1
-            fi
-            echo $DOMAIN
-          }
-
-          # Validate and format primary domain
-          DOMAIN=$(validate_domain "${{ inputs.domain }}")
-          echo "PRIMARY_DOMAIN=$DOMAIN" >> $GITHUB_ENV
-          ALLOWED_DOMAINS="$DOMAIN"
-
-          # If additional domains are provided, process them
-          if [ -n "${{ inputs.domains }}" ]; then
-            IFS=',' read -ra ADDITIONAL_DOMAINS <<< "${{ inputs.domains }}"
-            for domain in "${ADDITIONAL_DOMAINS[@]}"; do
-              VALIDATED_DOMAIN=$(validate_domain "$domain")
-              ALLOWED_DOMAINS="$ALLOWED_DOMAINS,$VALIDATED_DOMAIN"
-            done
+          
+          # Remove protocol from URL if present
+          DOMAIN="${DOMAIN#http://}"
+          DOMAIN="${DOMAIN#https://}"
+          DOMAIN="${DOMAIN%%/*}"
+          
+          if ! [[ $DOMAIN =~ ^[A-Za-z0-9.-]+\.[A-Za-z0-9-]{2,}$ ]]; then
+            echo "Error: Invalid domain format: $DOMAIN"
+            exit 1
           fi
+          echo $DOMAIN
+        }
 
-          echo "ALLOWED_DOMAINS=$ALLOWED_DOMAINS" >> $GITHUB_ENV
+        # Validate and format primary domain
+        DOMAIN=$(validate_domain "${{ inputs.domain }}")
+        echo "PRIMARY_DOMAIN=$DOMAIN" >> $GITHUB_ENV
+        ALLOWED_DOMAINS="$DOMAIN"
+
+        # Validate and add additional domains if provided
+        if [ -n "${{ inputs.second_domain }}" ]; then
+          IFS=',' read -ra DOMAIN_ARRAY <<< "${{ inputs.second_domain }}"
+          for domain in "${DOMAIN_ARRAY[@]}"; do
+            VALIDATED_DOMAIN=$(validate_domain "$domain")
+            ALLOWED_DOMAINS="$ALLOWED_DOMAINS,$VALIDATED_DOMAIN"
+          done
+        fi
+
+        echo "ALLOWED_DOMAINS=$ALLOWED_DOMAINS" >> $GITHUB_ENV
+
+
 
       - name: Validate app_name input
         run: |
