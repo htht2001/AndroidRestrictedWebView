@@ -78,6 +78,7 @@ jobs:
           if [ -n "${{ inputs.second_domain }}" ]; then
             IFS=',' read -ra DOMAIN_ARRAY <<< "${{ inputs.second_domain }}"
             for domain in "${DOMAIN_ARRAY[@]}"; do
+              domain=$(echo "$domain" | xargs)  # Remove any leading or trailing whitespace
               VALIDATED_DOMAIN=$(validate_domain "$domain")
               ALLOWED_DOMAINS="$ALLOWED_DOMAINS,$VALIDATED_DOMAIN"
               echo "Additional Domain Validated: $VALIDATED_DOMAIN"
