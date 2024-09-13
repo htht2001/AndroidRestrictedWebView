@@ -45,8 +45,11 @@ jobs:
     name: Workflow ID Provider
     runs-on: ubuntu-latest
     steps:
-      - name: Run identifier
-        run: echo "Run identifier: ${{ inputs.id }}"
+      - name: Print Run Identifier
+        run: |
+          echo "Run identifier: ${{ github.event.inputs.id }}"
+
+
 
   build:
     runs-on: ubuntu-latest
