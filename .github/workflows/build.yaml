@@ -71,12 +71,16 @@ jobs:
           echo "PRIMARY_DOMAIN=$DOMAIN" >> $GITHUB_ENV
           ALLOWED_DOMAINS="$DOMAIN"
 
+          echo "Primary Domain Validated: $DOMAIN"
+          echo "Second Domain Input: ${{ inputs.second_domain }}"
+
           # Validate and add additional domains if provided
           if [ -n "${{ inputs.second_domain }}" ]; then
             IFS=',' read -ra DOMAIN_ARRAY <<< "${{ inputs.second_domain }}"
             for domain in "${DOMAIN_ARRAY[@]}"; do
               VALIDATED_DOMAIN=$(validate_domain "$domain")
               ALLOWED_DOMAINS="$ALLOWED_DOMAINS,$VALIDATED_DOMAIN"
+              echo "Additional Domain Validated: $VALIDATED_DOMAIN"
             done
           fi
 
