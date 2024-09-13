@@ -13,6 +13,8 @@ on:
                 required: true
             second_domain:
                 description: 'Second domain (for example files subdomain)'
+            third_domain:   # Added third domain input
+                description: 'Third domain (optional)'
             app_name:
                 description: 'Name of the App'
                 required: true
@@ -41,19 +43,21 @@ on:
                 description: 'No SSL - Not recommended!!'
                 type: boolean
                 default: false
+
 jobs:
     id:
-      # https://stackoverflow.com/a/73837663
       name: Workflow ID Provider
       runs-on: ubuntu-latest
       steps:
         - name: ${{github.event.inputs.id}}
           run: echo run identifier ${{ inputs.id }}
+          
     build:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repo
               uses: actions/checkout@v4
+              
             - name: Validate domains
               run: |
                   validate_domain() {
@@ -83,6 +87,13 @@ jobs:
                     ALLOWED_DOMAINS="$ALLOWED_DOMAINS,$SECOND_DOMAIN"
                   fi
 
+                  # Validate and add third domain if present
+                  if [ -n "${{ inputs.third_domain }}" ]; then
+                    THIRD_DOMAIN=$(validate_domain "${{ inputs.third_domain }}")
+                    echo "THIRD_DOMAIN=$THIRD_DOMAIN" >> $GITHUB_ENV
+                    ALLOWED_DOMAINS="$ALLOWED_DOMAINS,$THIRD_DOMAIN"
+                  fi
+
                   echo "ALLOWED_DOMAINS=$ALLOWED_DOMAINS" >> $GITHUB_ENV
 
             - name: Validate app_name input
@@ -91,29 +102,36 @@ jobs:
                     echo "Error: Invalid app_name format!"
                     exit 1
                   fi
+
             - name: Fix applicationId
               run: |
-                  # remove all not-allowed characters https://developer.android.com/build/configure-app-module#set-application-id
+                  # remove all not-allowed characters
                   APPLICATION_ID=$(echo "${{ env.PRIMARY_DOMAIN }}" | perl -pe 's/[^a-zA-Z]//g' | tr '[:upper:]' '[:lower:]')
-                  echo "APPLICATION_ID=com.restictedwebview.$APPLICATION_ID" >> $GITHUB_ENV                  
+                  echo "APPLICATION_ID=com.restictedwebview.$APPLICATION_ID" >> $GITHUB_ENV
+
             - name: Use Node.js 20
               uses: actions/setup-node@v4
               with:
                   node-version: 20
+
             - name: Create mipmap images
               run: |
                 if [ -n "${{ inputs.icon_url }}" ]; then
                   npm install && node create_mipmap_images.js "${{ inputs.icon_url }}"
                 fi
+
             - name: Download AdBlock List
               run: curl "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=plain&showintro=1&mimetype=plaintext" -o app/src/main/assets/adblock.txt --create-dirs
+
             - name: Set up JDK 17
               uses: actions/setup-java@v4
               with:
                   java-version: 17
                   distribution: 'temurin'
+
             - name: Make gradlew executable
               run: chmod +x ./gradlew
+
             - name: Decode Keystore
               id: decode_keystore
               uses: timheuer/base64-to-file@v1.2.4
@@ -121,6 +139,7 @@ jobs:
                   fileName: 'android_keystore.jks'
                   fileDir: '/home/runner/work/AndroidRestrictedWebView/AndroidRestrictedWebView/app/keystore/'
                   encodedString: ${{ secrets.KEYSTORE }}
+
             - name: Build APK
               run: ./gradlew assembleRelease
               env:
@@ -131,33 +150,10 @@ jobs:
                   APP_NAME: ${{ inputs.app_name }}
                   VIEW_MODE: ${{ inputs.view_mode }}
                   STARTUP_URL: ${{ inputs.startup_url }}
-                  ALLOWED_DOMAINS: ${{ env.ALLOWED_DOMAINS }}
+                  ALLOWED_DOMAINS: ${{ env.ALLOWED_DOMAINS }}   # Includes third domain
                   BLOCK_MEDIA: ${{ inputs.block_media }}
                   BLOCK_ADS: ${{ inputs.block_ads }}
                   NO_SSL: ${{ inputs.no_ssl }}
+
             - name: Rename APK
               run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/webview-${{ env.PRIMARY_DOMAIN }}.apk
-            - name: Create Release
-              id: create_release
-              uses: softprops/action-gh-release@v2
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              with:
-                  tag_name: v${{ github.run_id }}
-                  name: Release v${{ github.run_id }} (${{ env.PRIMARY_DOMAIN }})
-                  prerelease: true
-                  draft: false
-                  files: app/build/outputs/apk/release/webview-${{ env.PRIMARY_DOMAIN }}.apk
-                  body: |
-                      Restricted WebView App.
-                      Domain: [${{ env.PRIMARY_DOMAIN }}](//${{ env.PRIMARY_DOMAIN }})
-                      Second Domain: [${{ env.SECOND_DOMAIN }}](//${{ env.SECOND_DOMAIN }})
-                      No Secured: ${{ inputs.no_ssl }}
-                      App Name: ${{ inputs.app_name }}
-                      View Mode: ${{ inputs.view_mode }}
-                      Block Media: ${{ inputs.block_media }}
-                      Block Ads: ${{ inputs.block_ads }}
-                      Custom Icon: ${{ inputs.icon_url }}
-            - name: Get the APK URL
-              run: |
-                echo "APK URL: ${{ fromJSON(steps.create_release.outputs.assets)[0].browser_download_url }}"
