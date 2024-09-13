@@ -158,9 +158,9 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         AdBlockerUtil adBlockerUtil = AdBlockerUtil.getInstance();
         adBlockerUtil.initialize(this);
-        if (VIEW_MODE == "PORTRAIT") {
+        if (VIEW_MODE.equals("PORTRAIT")) {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-        } else if (VIEW_MODE == "LANDSCAPE") {
+        } else if (VIEW_MODE.equals("LANDSCAPE")) {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         } else {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -180,10 +180,12 @@ public class MainActivity extends Activity {
         webSettings.setDefaultTextEncodingName("utf-8");
         webSettings.setPluginState(PluginState.ON);
         webSettings.setAllowFileAccess(false);
+        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(mWebView, true);
         if (BLOCK_MEDIA) {
             webSettings.setLoadsImagesAutomatically(false);
         }
-
+        webSettings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36");
 
         mWebView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -208,9 +210,9 @@ public class MainActivity extends Activity {
                 getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
                 mCustomViewCallback.onCustomViewHidden();
                 mCustomViewCallback = null;
-                if (VIEW_MODE == "PORTRAIT") {
+                if (VIEW_MODE.equals("PORTRAIT")) {
                     setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-                } else if (VIEW_MODE == "LANDSCAPE") {
+                } else if (VIEW_MODE.equals("LANDSCAPE")) {
                     setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
                 } else {
                     setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -246,116 +248,50 @@ public class MainActivity extends Activity {
                 } else {
                     i.setType("*/*");
                 }
-                startActivityForResult(Intent.createChooser(i, "Choice File"), FILECHOOSER_RESULTCODE);
+                startActivityForResult(Intent.createChooser(i, "File Browser"), FILECHOOSER_RESULTCODE);
             }
         });
 
-        mWebView.setWebViewClient(new HelloWebViewClient());
-        mWebView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                requestStoragePermission();
+        mWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                mProgressBar.setVisibility(View.GONE);
             }
-            Uri source = Uri.parse(url);
-            DownloadManager.Request request = new DownloadManager.Request(source);
-            String cookies = CookieManager.getInstance().getCookie(url);
-            request.addRequestHeader("cookie", cookies);
-            request.addRequestHeader("User-Agent", userAgent);
-            request.setDescription("Downloading File...");
-            request.setTitle(URLUtil.guessFileName(url, contentDisposition, mimeType));
-            request.allowScanningByMediaScanner();
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimeType));
-            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            dm.enqueue(request);
-            Toast.makeText(getApplicationContext(), "Downloading File...", Toast.LENGTH_LONG).show();
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                if (NO_SSL && (Objects.equals(error.getCertificate().getIssuedTo().getCName(), "NetFree") ||
+                        Objects.equals(error.getCertificate().getIssuedTo().getCName(), "Netspark"))) {
+                    handler.proceed();
+                } else {
+                    handler.cancel();
+                    view.loadData("<html><body><h1 style='color: grey'>SSL Error</h1></body></html>", "text/html; charset=utf-8", "UTF-8");
+                }
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
+                if (BLOCK_ADS && AdBlockerUtil.getInstance().isAd(url)) {
+                    return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream("".getBytes()));
+                } else {
+                    return super.shouldInterceptRequest(view, url);
+                }
+            }
         });
-        mWebView.loadUrl(STARTUP_URL.isEmpty() ? "https://" + ALLOWED_DOMAINS[0] : STARTUP_URL);
-    }
-    
-    private class HelloWebViewClient extends WebViewClient {
-        @Override
-        public boolean shouldOverrideUrlLoading(final WebView view, final String url) {
-            String host = Uri.parse(url).getHost();
-            boolean isAllowed = false;
 
-            if (url.startsWith("tel:")) {
-                Intent tel = new Intent(Intent.ACTION_DIAL, Uri.parse(url));
-                startActivity(tel);
-                return true;
-            }
-
-            if (url.contains("mailto:")){
-                   view.getContext().startActivity(
-                    new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-            }
-
-            if (host == null) {
-                isAllowed = true; // mailto: links
-            }
-            if (!STARTUP_URL.isEmpty() && url.equals(STARTUP_URL)) {
-                isAllowed = true;
-            }
-            for (String domain : ALLOWED_DOMAINS) {
-                if (host == null || host.equals(domain) || host.equals("www." + domain) || host.equals("m." + domain)) {
-                    isAllowed = true;
-                    break;
-                }
-            }
-
-            if (isAllowed) {
-                mProgressBar.setVisibility(View.VISIBLE);
-                view.loadUrl(url);
-                return true;
-            } else {
-                Toast.makeText(view.getContext(), "This URL is not allowed (" + host + ")", Toast.LENGTH_SHORT).show();
-                return true;
-            }
-        }
-
-        @Override
-        public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
-            if (BLOCK_ADS && AdBlockerUtil.getInstance().isAd(url)) {
-                WebResourceResponse emptyResponse = new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream("".getBytes()));
-                return emptyResponse;
-            } else {
-                return super.shouldInterceptRequest(view, url);
-            }
-        }
-
-        @Override
-        public void onPageFinished(WebView view, String url) {
-            super.onPageFinished(view, url);
-            mProgressBar.setVisibility(View.GONE);
-            if (BLOCK_MEDIA) {
-                view.loadUrl("javascript: (() => { function handle(node) { if (node.tagName === 'IMG' && node.style.visibility !== 'hidden' && node.width > 32 && node.height > 32) { const blankImageUrl = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///////yH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='; const { width, height } = window.getComputedStyle(node); node.src = blankImageUrl; node.style.visibility = 'hidden'; node.style.background = 'none'; node.style.backgroundImage = `url(${blankImageUrl})`; node.style.width = width; node.style.height = height; } else if (node.tagName === 'VIDEO' || node.tagName === 'IFRAME' || ((!node.type || node.type.includes('video')) && node.tagName === 'SOURCE') || node.tagName === 'OBJECT') { node.remove(); } } document.querySelectorAll('img,video,source,object,embed,iframe,[type^=video]').forEach(handle); const observer = new MutationObserver((mutations) => mutations.forEach((mutation) => mutation.addedNodes.forEach(handle))); observer.observe(document.body, { childList: true, subtree: true }); })();");
-            }
-        }
-
-        @Override
-        public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-            String issuerName = error.getCertificate().getIssuedBy().getOName();
-            if (NO_SSL && (Objects.equals(issuerName, "NetFree") || Objects.equals(issuerName, "Netspark"))) {
-                handler.proceed();
-            } else {
-                handler.cancel();
-                view.loadData("<html><body><h1 style='color: grey'>SSL Error</h1></body></html>", "text/html; charset=utf-8", "UTF-8");
-                if (Objects.equals(issuerName, "NetFree")) {
-                    Toast.makeText(view.getContext(), "טיפ: נראה שלא מותקנת תעודת אבטחה של נטפרי", Toast.LENGTH_LONG).show();
-                } else if (Objects.equals(issuerName, "Netspark")) {
-                    Toast.makeText(view.getContext(), "טיפ: נראה שלא מותקנת תעודת אבטחה של אתרוג/רימון", Toast.LENGTH_LONG).show();
-                }
-            }
-        }
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (mCustomView != null) {
-            mWebView.getWebChromeClient().onHideCustomView();
-        } else if (mWebView.canGoBack()) {
-            mWebView.goBack();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestStoragePermission();
         } else {
-            super.onBackPressed();
+            startWebView();
+        }
+    }
+
+    private void startWebView() {
+        if (URLUtil.isValidUrl(STARTUP_URL)) {
+            mWebView.loadUrl(STARTUP_URL);
+        } else {
+            Toast.makeText(this, "Invalid URL", Toast.LENGTH_SHORT).show();
         }
     }
 }
