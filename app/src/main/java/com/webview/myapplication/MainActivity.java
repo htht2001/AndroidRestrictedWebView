@@ -181,6 +181,10 @@ public class MainActivity extends Activity {
         webSettings.setDefaultTextEncodingName("utf-8");
         webSettings.setPluginState(PluginState.ON);
         webSettings.setAllowFileAccess(false);
+    
+        // Set the custom User-Agent here
+        webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36");
+
         if (BLOCK_MEDIA) {
             webSettings.setLoadsImagesAutomatically(false);
         }
