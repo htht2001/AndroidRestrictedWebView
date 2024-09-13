@@ -1,157 +1,175 @@
 name: 🤖 Generate Android App
 permissions:
-  contents: write
+    contents: write
 
 on:
-  workflow_dispatch:
-    inputs:
-      id:
-        description: 'Run identifier'
-        required: true
-      domain:
-        description: 'URL of the Website'
-        required: true
-      second_domain:
-        description: 'Second domain (for example files subdomain)'
-      app_name:
-        description: 'Name of the App'
-        required: true
-      block_media:
-        description: 'Block images'
-        type: boolean
-        default: false
-      block_ads:
-        description: 'Block ads'
-        type: boolean
-        default: true
-      view_mode:
-        description: 'View Mode'
-        required: true
-        type: choice
-        default: 'AUTO'
-        options:
-          - 'AUTO'
-          - 'PORTRAIT'
-          - 'LANDSCAPE'
-      icon_url:
-        description: 'Icon URL'
-      startup_url:
-        description: 'Start URL'
-      no_ssl:
-        description: 'No SSL - Not recommended!!'
-        type: boolean
-        default: false
+    workflow_dispatch:
+        inputs:
+            id:
+              description: 'Run identifier'
+              required: true
+            domain:
+                description: 'URL of the Website'
+                required: true
+            second_domain:
+                description: 'Second domain (for example files subdomain)'
+            app_name:
+                description: 'Name of the App'
+                required: true
+            block_media:
+                description: 'Block images'
+                type: boolean
+                default: false
+            block_ads:
+                description: 'Block ads'
+                type: boolean
+                default: true
+            view_mode:
+                description: 'View Mode'
+                required: true
+                type: choice
+                default: 'AUTO'
+                options:
+                    - 'AUTO'
+                    - 'PORTRAIT'
+                    - 'LANDSCAPE'
+            icon_url:
+                description: 'Icon URL'
+            startup_url:
+                description: 'Start URL'
+            no_ssl:
+                description: 'No SSL - Not recommended!!'
+                type: boolean
+                default: false
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+    id:
+      name: Workflow ID Provider
+      runs-on: ubuntu-latest
+      steps:
+        - name: Set run identifier
+          run: echo "Run identifier: ${{ github.event.inputs.id }}"
 
-      - name: Validate primary domain and additional domains
-        run: |
-          validate_domain() {
-            DOMAIN="${1}"
-            DOMAIN="${DOMAIN#http://}"
-            DOMAIN="${DOMAIN#https://}"
-            DOMAIN="${DOMAIN%%/*}"
-            if ! [[ $DOMAIN =~ ^[A-Za-z0-9.-]+\.[A-Za-z0-9-]{2,}$ ]]; then
-              echo "Error: Invalid domain format: $DOMAIN"
-              exit 1
-            fi
-            echo $DOMAIN
-          }
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repo
+              uses: actions/checkout@v4
 
-          DOMAIN=$(validate_domain "${{ inputs.domain }}")
-          echo "PRIMARY_DOMAIN=$DOMAIN" >> $GITHUB_ENV
-          ALLOWED_DOMAINS="$DOMAIN"
+            - name: Validate domains
+              run: |
+                validate_domain() {
+                  DOMAIN="${1}"
+                  DOMAIN="${DOMAIN#http://}"
+                  DOMAIN="${DOMAIN#https://}"
+                  DOMAIN="${DOMAIN%%/*}"
+                  if ! [[ $DOMAIN =~ ^[A-Za-z0-9.-]+\.[A-Za-z0-9-]{2,}$ ]]; then
+                    echo "Error: Invalid domain format: $DOMAIN"
+                    exit 1
+                  fi
+                  echo $DOMAIN
+                }
 
-          if [ -n "${{ inputs.second_domain }}" ]; then
-            IFS=',' read -ra DOMAIN_ARRAY <<< "${{ inputs.second_domain }}"
-            for domain in "${DOMAIN_ARRAY[@]}"; do
-              VALIDATED_DOMAIN=$(validate_domain "$domain")
-              ALLOWED_DOMAINS="$ALLOWED_DOMAINS,$VALIDATED_DOMAIN"
-            done
-          fi
+                # Validate and format primary domain
+                DOMAIN=$(validate_domain "${{ inputs.domain }}")
+                echo "PRIMARY_DOMAIN=$DOMAIN" >> $GITHUB_ENV
+                ALLOWED_DOMAINS="$DOMAIN"
 
-          echo "ALLOWED_DOMAINS=$ALLOWED_DOMAINS" >> $GITHUB_ENV
+                # Validate and add additional domains if provided
+                if [ -n "${{ inputs.second_domain }}" ]; then
+                  IFS=',' read -ra DOMAIN_ARRAY <<< "${{ inputs.second_domain }}"
+                  for domain in "${DOMAIN_ARRAY[@]}"; do
+                    VALIDATED_DOMAIN=$(validate_domain "$domain")
+                    ALLOWED_DOMAINS="$ALLOWED_DOMAINS,$VALIDATED_DOMAIN"
+                  done
+                fi
 
-      - name: Validate app_name input
-        run: |
-          if ! perl -e "exit 1 unless '${{ inputs.app_name }}' =~ /^[:a-zA-Zא-ת0-9 \"_.-]+$/"; then
-            echo "Error: Invalid app_name format!"
-            exit 1
-          fi
+                echo "ALLOWED_DOMAINS=$ALLOWED_DOMAINS" >> $GITHUB_ENV
+              shell: /usr/bin/bash -e {0}
 
-      - name: Fix applicationId
-        run: |
-          APPLICATION_ID=$(echo "${{ env.PRIMARY_DOMAIN }}" | perl -pe 's/[^a-zA-Z]//g' | tr '[:upper:]' '[:lower:]')
-          echo "APPLICATION_ID=com.restictedwebview.$APPLICATION_ID" >> $GITHUB_ENV
+            - name: Validate app_name input
+              run: |
+                if ! perl -e "exit 1 unless '${{ inputs.app_name }}' =~ /^[:a-zA-Zא-ת0-9 \"_.-]+$/"; then
+                  echo "Error: Invalid app_name format!"
+                  exit 1
+                fi
 
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+            - name: Fix applicationId
+              run: |
+                APPLICATION_ID=$(echo "${{ env.PRIMARY_DOMAIN }}" | perl -pe 's/[^a-zA-Z]//g' | tr '[:upper:]' '[:lower:]')
+                echo "APPLICATION_ID=com.restictedwebview.$APPLICATION_ID" >> $GITHUB_ENV
 
-      - name: Create mipmap images
-        run: |
-          if [ -n "${{ inputs.icon_url }}" ]; then
-            npm install && node create_mipmap_images.js "${{ inputs.icon_url }}"
-          fi
+            - name: Use Node.js 20
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
 
-      - name: Download AdBlock List
-        run: curl "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=plain&showintro=1&mimetype=plaintext" -o app/src/main/assets/adblock.txt --create-dirs
+            - name: Create mipmap images
+              run: |
+                if [ -n "${{ inputs.icon_url }}" ]; then
+                  npm install && node create_mipmap_images.js "${{ inputs.icon_url }}"
+                fi
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: 17
-          distribution: 'temurin'
+            - name: Download AdBlock List
+              run: curl "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=plain&showintro=1&mimetype=plaintext" -o app/src/main/assets/adblock.txt --create-dirs
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
+            - name: Set up JDK 17
+              uses: actions/setup-java@v4
+              with:
+                  java-version: 17
+                  distribution: 'temurin'
 
-      - name: Build APK
-        run: ./gradlew assembleRelease
-        env:
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          APPLICATION_ID: ${{ env.APPLICATION_ID }}
-          APP_NAME: ${{ inputs.app_name }}
-          VIEW_MODE: ${{ inputs.view_mode }}
-          STARTUP_URL: ${{ inputs.startup_url }}
-          ALLOWED_DOMAINS: ${{ env.ALLOWED_DOMAINS }}
-          BLOCK_MEDIA: ${{ inputs.block_media }}
-          BLOCK_ADS: ${{ inputs.block_ads }}
-          NO_SSL: ${{ inputs.no_ssl }}
+            - name: Make gradlew executable
+              run: chmod +x ./gradlew
 
-      - name: Rename APK
-        run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/webview-${{ env.PRIMARY_DOMAIN }}.apk
+            - name: Decode Keystore
+              id: decode_keystore
+              uses: timheuer/base64-to-file@v1.2.4
+              with:
+                  fileName: 'android_keystore.jks'
+                  fileDir: '/home/runner/work/AndroidRestrictedWebView/AndroidRestrictedWebView/app/keystore/'
+                  encodedString: ${{ secrets.KEYSTORE }}
 
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ github.run_id }}
-          name: Release v${{ github.run_id }} (${{ env.PRIMARY_DOMAIN }})
-          prerelease: true
-          draft: false
-          files: app/build/outputs/apk/release/webview-${{ env.PRIMARY_DOMAIN }}.apk
-          body: |
-              Restricted WebView App.
-              Domain: [${{ env.PRIMARY_DOMAIN }}](//${{ env.PRIMARY_DOMAIN }})
-              Second Domain: [${{ inputs.second_domain }}]
-              No Secured: ${{ inputs.no_ssl }}
-              App Name: ${{ inputs.app_name }}
-              View Mode: ${{ inputs.view_mode }}
-              Block Media: ${{ inputs.block_media }}
-              Block Ads: ${{ inputs.block_ads }}
-              Custom Icon: ${{ inputs.icon_url }}
+            - name: Build APK
+              run: ./gradlew assembleRelease
+              env:
+                  SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+                  SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+                  SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+                  APPLICATION_ID: ${{ env.APPLICATION_ID }}
+                  APP_NAME: ${{ inputs.app_name }}
+                  VIEW_MODE: ${{ inputs.view_mode }}
+                  STARTUP_URL: ${{ inputs.startup_url }}
+                  ALLOWED_DOMAINS: ${{ env.ALLOWED_DOMAINS }}
+                  BLOCK_MEDIA: ${{ inputs.block_media }}
+                  BLOCK_ADS: ${{ inputs.block_ads }}
+                  NO_SSL: ${{ inputs.no_ssl }}
 
-      - name: Get the APK URL
-        run: |
-          echo "APK URL: ${{ fromJSON(steps.create_release.outputs.assets)[0].browser_download_url }}"
+            - name: Rename APK
+              run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/webview-${{ env.PRIMARY_DOMAIN }}.apk
+
+            - name: Create Release
+              id: create_release
+              uses: softprops/action-gh-release@v2
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  tag_name: v${{ github.run_id }}
+                  name: Release v${{ github.run_id }} (${{ env.PRIMARY_DOMAIN }})
+                  prerelease: true
+                  draft: false
+                  files: app/build/outputs/apk/release/webview-${{ env.PRIMARY_DOMAIN }}.apk
+                  body: |
+                      Restricted WebView App.
+                      Domain: [${{ env.PRIMARY_DOMAIN }}](//${{ env.PRIMARY_DOMAIN }})
+                      Second Domain: [${{ env.SECOND_DOMAIN }}](//${{ env.SECOND_DOMAIN }})
+                      No Secured: ${{ inputs.no_ssl }}
+                      App Name: ${{ inputs.app_name }}
+                      View Mode: ${{ inputs.view_mode }}
+                      Block Media: ${{ inputs.block_media }}
+                      Block Ads: ${{ inputs.block_ads }}
+                      Custom Icon: ${{ inputs.icon_url }}
+
+            - name: Get the APK URL
+              run: |
+                echo "APK URL: ${{ fromJSON(steps.create_release.outputs.assets)[0].browser_download_url }}"
